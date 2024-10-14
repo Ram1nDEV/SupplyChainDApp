@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Təchizat Zənciri İzlənməsi</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        h1 {
+            color: #4a90e2;
+        }
+        #main-container {
+            display: none;
+            flex-direction: row;
+            justify-content: space-between;
+            width: 80%;
+            margin-top: 20px;
+        }
+        #admin-functions, #user-functions {
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            flex: 1;
+            width: 300px;
+        }
+        #admin-functions {
+            display: none;
+        }
+        #user-functions {
+            display: none;
+        }
+        #activity-log {
+            flex: 1;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            max-height: 400px;
+            overflow-y: scroll;
+        }
+        #activity-log h2 {
+            color: #4a90e2;
+            text-align: left;
+        }
+        .log-entry {
+            background-color: #f9f9f9;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            text-align: left;
+        }
+        #activity-log {
+            display: none;
+        }
+        #account-selection {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-top: 50px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 300px;
+        }
+        select, button, input {
+            padding: 10px;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        input {
+            width: calc(100% - 22px);
+            box-sizing: border-box;
+        }
+        #error-message {
+            color: red;
+            display: none;
+        }
+        #success-message {
+            color: green;
+            display: none;
+        }
+        #logout-button {
+            display: none;
+            margin-top: 20px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.6.1/web3.min.js"></script>
+</head>
+<body>
+    <h1>Təchizat Zənciri İzlənməsi</h1>
+
+    <div id="account-selection">
+        <h2>Hesaba Giriş</h2>
+        <select id="account-dropdown"></select>
+        <button id="select-account">Daxil Ol</button>
+        <p id="error-message">Hesab seçimi zamanı problem baş verdi.</p>
+        <p id="success-message">Hesab uğurla seçildi!</p>
+    </div>
+
+    <div id="main-container">
+        <div id="user-functions">
+            <h2>İstifadəçi Funksiyaları</h2>
+            <button onclick="viewWarehouse()">Anbarı Göstər</button>
+            <div>
+                <!-- Məhsul ID-sini seçmək üçün -->
+                <input type="number" id="user-product-id" placeholder="Məhsul ID daxil edin" />
+                <!-- Göndərəcəyiniz istifadəçini seçmək üçün -->
+                <select id="user-transfer-to-account"></select>
+                <button onclick="userTransferProduct()">Məhsulu Göndər</button>
+            </div>
+        </div>
+
+        <div id="admin-functions">
+            <h2>Admin Funksiyaları</h2>
+
+            <!-- Məhsul Əlavə Et -->
+            <div>
+                <input type="text" id="product-name" placeholder="Məhsul adı daxil edin" />
+                <button onclick="addProduct()">Məhsul Əlavə Et</button>
+            </div>
+
+            <!-- Məhsul Göndər -->
+            <div>
+                <input type="number" id="product-id" placeholder="Məhsul ID daxil edin" />
+                <select id="transfer-to-account"></select>
+                <button onclick="adminTransferProduct()">Məhsulu Göndər</button>
+            </div>
+
+            <!-- Məhsul Tarixçəsini Götür -->
+            <div>
+                <input type="number" id="history-product-id" placeholder="Məhsul ID daxil edin" />
+                <button onclick="getProductHistory()">Məhsul Tarixçəsini Götür</button>
+            </div>
+
+            <!-- Məhsul ID-sinə görə Detallar -->
+            <div>
+                <input type="number" id="details-product-id" placeholder="Məhsul ID daxil edin" />
+                <button onclick="getProductDetailsById()">Məhsul ID-sinə görə Detallar</button>
+            </div>
+        </div>
+
+        <!-- Activity Log (Admin üçün) -->
+        <div id="activity-log">
+            <h2>Əməliyyatlar Logu</h2>
+            <div id="log-entries"></div>
+        </div>
+    </div>
+
+    <button id="logout-button" onclick="logout()">Çıxış Et</button>
+
+    <script>
+        const ganacheUrl = "http://127.0.0.1:7545";
+        const abi = [
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "index",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      }
+    ],
+    "name": "AccountChoice",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "admin",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_productId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getProductById",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "internalType": "address[]",
+            "name": "history",
+            "type": "address[]"
+          }
+        ],
+        "internalType": "struct SupplyChain.Product",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_productId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getProductHistory",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserWarehouse",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "internalType": "address[]",
+            "name": "history",
+            "type": "address[]"
+          }
+        ],
+        "internalType": "struct SupplyChain.Product[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserWarehouseAdmin",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "internalType": "address[]",
+            "name": "history",
+            "type": "address[]"
+          }
+        ],
+        "internalType": "struct SupplyChain.Product[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_index",
+        "type": "uint256"
+      }
+    ],
+    "name": "chooseAccount",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_index",
+        "type": "uint256"
+      }
+    ],
+    "name": "switchAccount",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_name",
+        "type": "string"
+      }
+    ],
+    "name": "addProductToGeneralWarehouse",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_productId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_to",
+        "type": "address"
+      }
+    ],
+    "name": "transferProductFromGeneral",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_productId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "_newName",
+        "type": "string"
+      }
+    ],
+    "name": "updateProductName",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_productId",
+        "type": "uint256"
+      }
+    ],
+    "name": "removeProductFromGeneral",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_productId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_to",
+        "type": "address"
+      }
+    ],
+    "name": "transferProduct",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_productId",
+        "type": "uint256"
+      }
+    ],
+    "name": "removeProductFromUser",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+];
+
+        const contractAddress = "0x539a5e559d284cb32c51c7fA71A70Ce2b3BBf56A";
+        let web3;
+        let supplyChainContract;
+        let accountsInfo = [];
+        let usersList = [
+            { name: "Ramin", address: "0xB874C7ce83632ce17Dc746C3eebF0732bF2038f5" }, // Admin
+            { name: "User2", address: "0xFB2116f8C04DdDE83a66b6c09421dD0722B0c313" },
+            { name: "User3", address: "0x940Ba084d29a9c3178d8239b6E8736A37BF90972" },
+            { name: "User4", address: "0x1e914BEF7e275402e5Ea3A28bd3301e0895CFBDB" },
+            { name: "User5", address: "0xb60451148B72E50a26fa399e61aA0a61Fb5E15ed" },
+            { name: "User6", address: "0xFd5E5eb4866c8e0A35D1C252d84056cF24A44b0C" },
+            { name: "User7", address: "0x4adc466e11C07F8AbB6C09c825F528DDf1125c44" },
+            { name: "User8", address: "0xF3b2ac76e7E25DB7756F79A9aec89A0a2bf8Aa1F" },
+            { name: "User9", address: "0xBcEa4dd68905779F08f0799ca6e1309107A19f81" },
+            { name: "User10", address: "0x1bC075565A4023cBbBe9e71A905893503697C692" }
+        ];
+
+        async function connectMetaMask() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    web3 = new Web3(window.ethereum);
+                    supplyChainContract = new web3.eth.Contract(abi, contractAddress);
+                    console.log("MetaMask bağlantısı quruldu!");
+                } catch (error) {
+                    console.error("MetaMask ilə əlaqə qurularkən xəta baş verdi: ", error);
+                    document.getElementById("error-message").textContent = "MetaMask ilə əlaqə qurularkən xəta baş verdi.";
+                    document.getElementById("error-message").style.display = "block";
+                }
+            } else {
+                alert("Zəhmət olmasa MetaMask quraşdırın!");
+                console.log("MetaMask quraşdırılmayıb.");
+            }
+        }
+
+        async function loadAccounts() {
+            try {
+                const accountDropdown = document.getElementById("account-dropdown");
+                const transferToAccountDropdown = document.getElementById("transfer-to-account");
+                const userTransferToAccountDropdown = document.getElementById("user-transfer-to-account");
+
+                usersList.forEach((user, index) => {
+                    const option = document.createElement("option");
+                    option.value = index;
+                    option.textContent = user.name;
+
+                    accountsInfo.push({ address: user.address, role: user.name === "Ramin" ? "admin" : "user" });
+                    accountDropdown.appendChild(option.cloneNode(true));
+                    transferToAccountDropdown.appendChild(option.cloneNode(true));
+                    userTransferToAccountDropdown.appendChild(option.cloneNode(true));
+                });
+            } catch (error) {
+                document.getElementById("error-message").style.display = "block";
+            }
+        }
+
+        document.getElementById("select-account").onclick = async () => {
+            const accountIndex = document.getElementById("account-dropdown").value;
+            const selectedAccount = accountsInfo[accountIndex].address;
+
+            try {
+                const role = accountsInfo[accountIndex].role;
+                document.getElementById("success-message").style.display = "block";
+                document.getElementById("logout-button").style.display = "block";
+
+                document.getElementById("account-selection").style.display = "none";
+                document.getElementById("main-container").style.display = "flex";
+
+                if (role === "admin") {
+                    document.getElementById("admin-functions").style.display = "block";
+                    document.getElementById("user-functions").style.display = "none";
+                    document.getElementById("activity-log").style.display = "block";
+                } else {
+                    document.getElementById("user-functions").style.display = "block";
+                    document.getElementById("admin-functions").style.display = "none";
+                    document.getElementById("activity-log").style.display = "none";
+                }
+            } catch (error) {
+                document.getElementById("error-message").style.display = "block";
+            }
+        };
+
+        // Çıxış funksiyası
+        function logout() {
+            document.getElementById("success-message").style.display = "none";
+            document.getElementById("logout-button").style.display = "none";
+            document.getElementById("admin-functions").style.display = "none";
+            document.getElementById("user-functions").style.display = "none";
+            document.getElementById("account-selection").style.display = "block";
+            document.getElementById("main-container").style.display = "none";
+            document.getElementById("activity-log").style.display = "none";
+        }
+
+        // Loga yeni əməliyyat əlavə etmək funksiyası
+        function addLogEntry(message) {
+            const logEntries = document.getElementById("log-entries");
+            const entry = document.createElement("div");
+            entry.className = "log-entry";
+            entry.textContent = message;
+            logEntries.appendChild(entry);
+        }
+
+        async function userTransferProduct() {
+            try {
+                const productId = document.getElementById("user-product-id").value;
+                const accountIndex = document.getElementById("user-transfer-to-account").value;
+                const selectedAccount = accountsInfo[accountIndex].address;
+                const senderAccountIndex = document.getElementById("account-dropdown").value;
+                const senderAccount = accountsInfo[senderAccountIndex].address;
+
+                // Konsolda dəyərləri yoxlayaq
+                console.log("Göndərilən productId:", productId);
+                console.log("Seçilmiş hesabın ünvanı (selectedAccount):", selectedAccount);
+                console.log("Göndərən hesabın ünvanı (senderAccount):", senderAccount);
+
+                // Əgər productId və selectedAccount boş və ya undefined olarsa, xəta çıxarsın
+                if (!productId || !selectedAccount || !senderAccount) {
+                    alert("Məhsul ID, alıcı hesabı və ya göndərən hesabı boşdur.");
+                    return;
+                }
+
+                await supplyChainContract.methods.transferProduct(productId, selectedAccount).send({
+                    from: senderAccount,
+                    gas: 3000000
+                });
+
+                addLogEntry(`İstifadəçi məhsulu göndərdi: Məhsul ID - ${productId}, Göndərən - ${senderAccount}, Alıcı - ${selectedAccount}`);
+                alert("Məhsul uğurla göndərildi!");
+            } catch (error) {
+                console.error("Məhsul göndərilərkən xəta baş verdi: ", error);
+                alert("Məhsul göndərilərkən xəta baş verdi.");
+            }
+        }
+
+        async function adminTransferProduct() {
+            try {
+                const productId = document.getElementById("product-id").value;
+                const accountIndex = document.getElementById("transfer-to-account").value;
+                const selectedAccount = accountsInfo[accountIndex].address;
+
+                await supplyChainContract.methods.transferProductFromGeneral(productId, selectedAccount).send({
+                    from: accountsInfo[0].address,
+                    gas: 3000000
+                });
+
+                addLogEntry(`Admin məhsulu göndərdi: Məhsul ID - ${productId}, Göndərilən hesab - ${selectedAccount}`);
+                alert("Məhsul uğurla göndərildi!");
+            } catch (error) {
+                console.error("Məhsul göndərilərkən xəta baş verdi: ", error);
+                alert("Məhsul göndərilərkən xəta baş verdi.");
+            }
+        }
+
+        async function getProductHistory() {
+            try {
+                const productId = document.getElementById("history-product-id").value;
+
+                // Məhsul ID yoxdursa xəta qaytar
+                if (!productId) {
+                    alert("Məhsul ID daxil edilməyib.");
+                    return;
+                }
+
+                const history = await supplyChainContract.methods.getProductHistory(productId).call({
+                    from: accountsInfo[0].address,
+                    gas: 3000000
+                });
+
+                if (history.length > 0) {
+                    addLogEntry(`Məhsul ID: ${productId} tarixçəsi: ${history.join(", ")}`);
+                } else {
+                    addLogEntry(`Məhsul ID: ${productId} üçün tarixçə tapılmadı.`);
+                }
+            } catch (error) {
+                console.error("Məhsul tarixçəsi alınarkən xəta baş verdi: ", error);
+                alert("Məhsul tarixçəsi alınarkən xəta baş verdi.");
+            }
+        }
+
+        async function getProductDetailsById() {
+            try {
+                const productId = document.getElementById("details-product-id").value;
+                const product = await supplyChainContract.methods.getProductById(productId).call({
+                    from: accountsInfo[0].address,
+                    gas: 3000000
+                });
+
+                if (product.id) {
+                    addLogEntry(`Məhsul ID: ${product.id}, Ad: ${product.name}, Sahibi: ${product.owner}, Tarixçə: ${product.history.join(", ")}`);
+                } else {
+                    addLogEntry(`Məhsul ID: ${productId} tapılmadı.`);
+                }
+            } catch (error) {
+                console.error("Məhsul detallarını almaqda xəta baş verdi: ", error);
+                alert("Məhsul detallarını almaqda xəta baş verdi.");
+            }
+        }
+
+        async function addProduct() {
+            try {
+                const productName = document.getElementById("product-name").value;
+                const accountIndex = document.getElementById("account-dropdown").value;
+                const selectedAccount = accountsInfo[accountIndex].address;
+
+                if (!productName) {
+                    alert("Zəhmət olmasa, məhsul adını daxil edin.");
+                    return;
+                }
+
+                await supplyChainContract.methods.addProductToGeneralWarehouse(productName).send({
+                    from: selectedAccount,
+                    gas: 3000000
+                });
+
+                alert("Məhsul uğurla əlavə edildi!");
+            } catch (error) {
+                console.error("Məhsul əlavə olunarkən xəta baş verdi: ", error);
+                alert("Məhsul əlavə olunarkən xəta baş verdi.");
+            }
+        }
+
+        window.onload = async function () {
+            await connectMetaMask();
+            loadAccounts();
+        }
+    </script>
+</body>
+</html>
